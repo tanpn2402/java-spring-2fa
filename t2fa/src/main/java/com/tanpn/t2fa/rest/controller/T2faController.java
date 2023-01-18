@@ -90,8 +90,8 @@ public class T2faController {
         return new ResponseEntity<>(lvResp, HttpStatus.OK);
     }
 
-    @PostMapping("/login")
-    public ResponseEntity<Map<String, String>> login(@RequestBody JsonNode payload) throws QrGenerationException {
+    @PostMapping("/login/2fa")
+    public ResponseEntity<Map<String, String>> loginBy2FA(@RequestBody JsonNode payload) throws QrGenerationException {
         Map<String, String> lvResp = new HashMap<>();
         String lvName = payload.get("username").asText();
         String lvCode = payload.get("code").asText();
@@ -116,6 +116,33 @@ public class T2faController {
             }
         } else {
             lvResp.put("e", "User hasn't registered 2FA yet");
+        }
+
+        return new ResponseEntity<>(lvResp, HttpStatus.OK);
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<Map<String, String>> login(@RequestBody JsonNode payload) throws QrGenerationException {
+        Map<String, String> lvResp = new HashMap<>();
+        String lvName = payload.get("username").asText();
+        String lvPasswd = payload.get("password").asText();
+        LOGGER.info("Login by password " + lvName);
+
+        UserEntity lvUser = null;
+        List<UserEntity> lvListUser = mvUserRepository.findByUsername(lvName);
+        if (lvListUser.size() > 0) {
+            lvUser = lvListUser.get(0);
+        }
+        if (lvUser != null) {
+            if (lvPasswd.equals(lvUser.getPassword())) {
+                lvResp.put("s", String.valueOf(true));
+                lvResp.put("t", "token-123");
+            } else {
+                lvResp.put("s", String.valueOf(false));
+                lvResp.put("e", "Wrong username or password");
+            }
+        } else {
+            lvResp.put("e", "Wrong username or password");
         }
 
         return new ResponseEntity<>(lvResp, HttpStatus.OK);
