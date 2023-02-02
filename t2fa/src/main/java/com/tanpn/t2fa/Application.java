@@ -4,9 +4,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class T2faApplication {
+public class Application {
 
 	public static void main(String[] args) {
-		SpringApplication.run(T2faApplication.class, args);
+		SpringApplication.run(Application.class, args);
 	}
 }

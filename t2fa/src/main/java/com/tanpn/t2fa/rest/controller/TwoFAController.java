@@ -8,12 +8,12 @@ import java.util.logging.Logger;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.tanpn.t2fa.cache.SimpleExpirableCache;
 import com.tanpn.t2fa.entity.UserEntity;
 import com.tanpn.t2fa.repository.UserRepository;
 
@@ -32,17 +32,23 @@ import dev.samstevens.totp.time.TimeProvider;
 
 import static dev.samstevens.totp.util.Utils.getDataUriForImage;
 
-@RestController
-@CrossOrigin
-public class T2faController {
-    private final static Logger LOGGER = Logger.getLogger(T2faController.class.getName());
+@RestController("/2fa")
+public class TwoFAController {
+
+    private final static Logger LOGGER = Logger.getLogger(AuthController.class.getName());
     private SecretGenerator mvSecretGenerator;
     private UserRepository mvUserRepository;
+    private SimpleExpirableCache<String, String> mvSecret2FACacheImpl;
+    private SimpleExpirableCache<String, String> mvLoginRequired2FACacheImpl;
 
     @Autowired
-    public T2faController(SecretGenerator secretGenerator, UserRepository userRepository) {
+    public TwoFAController(SecretGenerator secretGenerator, UserRepository userRepository,
+            SimpleExpirableCache<String, String> secret2FACacheImpl,
+            SimpleExpirableCache<String, String> loginRequired2FACacheImpl) {
         this.mvSecretGenerator = secretGenerator;
         this.mvUserRepository = userRepository;
+        this.mvSecret2FACacheImpl = secret2FACacheImpl;
+        this.mvLoginRequired2FACacheImpl = loginRequired2FACacheImpl;
     }
 
     /**
@@ -50,11 +56,18 @@ public class T2faController {
      * @retur
      * @throws QrGenerationException
      */
-    @PostMapping("/register")
-    public ResponseEntity<Map<String, String>> register(@RequestBody JsonNode payload) throws QrGenerationException {
+    @PostMapping("/generate-qrcode")
+    public ResponseEntity<Map<String, String>> generateQRCode(@RequestBody JsonNode payload)
+            throws QrGenerationException {
         Map<String, String> lvResp = new HashMap<>();
+        String lvSecret = null;
         String lvName = payload.get("username").asText();
-        LOGGER.info("Register 2FA with user " + lvName);
+        if (payload.get("secret") != null) {
+            lvSecret = payload.get("secret").asText();
+        } else {
+            lvSecret = mvSecretGenerator.generate();
+        }
+        LOGGER.info("Generate QRcode with secret " + lvSecret);
 
         UserEntity lvUser = null;
         List<UserEntity> lvListUser = mvUserRepository.findByUsername(lvName);
@@ -62,8 +75,6 @@ public class T2faController {
             lvUser = lvListUser.get(0);
         }
         if (lvUser != null) {
-            final String lvSecret = mvSecretGenerator.generate();
-
             QrData data = new QrData.Builder()
                     .label(lvName)
                     .secret(lvSecret)
@@ -78,24 +89,66 @@ public class T2faController {
 
             String dataUri = getDataUriForImage(imageData, mimeType);
 
+            lvResp.put("s", String.valueOf(true));
             lvResp.put("v", dataUri);
             lvResp.put("m", mimeType);
-
-            lvUser.setAuthenticator_secret(lvSecret);
-
-            mvUserRepository.save(lvUser);
+            // lvResp.put("s", lvSecret);
+            this.mvSecret2FACacheImpl.put(lvName, lvSecret);
         } else {
-
+            lvResp.put("s", String.valueOf(false));
+            lvResp.put("e", "Invalid user");
         }
+
         return new ResponseEntity<>(lvResp, HttpStatus.OK);
     }
 
-    @PostMapping("/login/2fa")
-    public ResponseEntity<Map<String, String>> loginBy2FA(@RequestBody JsonNode payload) throws QrGenerationException {
+    @PostMapping("/register")
+    public ResponseEntity<Map<String, String>> register(@RequestBody JsonNode payload) throws QrGenerationException {
         Map<String, String> lvResp = new HashMap<>();
         String lvName = payload.get("username").asText();
         String lvCode = payload.get("code").asText();
+        // String lvSecret = payload.get("secret").asText();
+        String lvSecret = this.mvSecret2FACacheImpl.get(lvName);
         LOGGER.info("Login with 2FA " + lvName + " | " + lvCode);
+
+        if (lvSecret == null) {
+            lvResp.put("s", String.valueOf(false));
+            lvResp.put("e", "Invalid user or QRCode is expired");
+            return new ResponseEntity<>(lvResp, HttpStatus.OK);
+        }
+        UserEntity lvUser = null;
+        List<UserEntity> lvListUser = mvUserRepository.findByUsername(lvName);
+        if (lvListUser.size() > 0) {
+            lvUser = lvListUser.get(0);
+        }
+        if (lvUser != null) {
+            TimeProvider timeProvider = new SystemTimeProvider();
+            CodeGenerator codeGenerator = new DefaultCodeGenerator();
+            CodeVerifier verifier = new DefaultCodeVerifier(codeGenerator, timeProvider);
+            boolean successful = verifier.isValidCode(lvSecret, lvCode);
+
+            lvResp.put("s", String.valueOf(successful));
+
+            if (successful) {
+                lvUser.setAuthenticator_secret(lvSecret);
+                mvUserRepository.save(lvUser);
+            } else {
+                lvResp.put("e", "Invalid code");
+            }
+        } else {
+            lvResp.put("e", "Invalid user");
+        }
+
+        return new ResponseEntity<>(lvResp, HttpStatus.OK);
+    }
+
+    @PostMapping("/verify")
+    public ResponseEntity<Map<String, String>> verify(@RequestBody JsonNode payload) {
+        Map<String, String> lvResp = new HashMap<>();
+        String lvName = payload.get("username").asText();
+        String lvCode = payload.get("code").asText();
+        String lv2faToken = payload.get("2faToken").asText("");
+        LOGGER.info("Verify 2FA " + lvName + " | " + lvCode);
 
         UserEntity lvUser = null;
         List<UserEntity> lvListUser = mvUserRepository.findByUsername(lvName);
@@ -105,7 +158,7 @@ public class T2faController {
         if (lvUser != null) {
             if (lvUser.getAuthenticator_secret() == null || lvUser.getAuthenticator_secret().isBlank() ||
                     lvUser.getAuthenticator_secret().isEmpty()) {
-                lvResp.put("e", "Invalid secret code");
+                lvResp.put("e", "User hasn't registered 2FA yet");
             } else {
                 TimeProvider timeProvider = new SystemTimeProvider();
                 CodeGenerator codeGenerator = new DefaultCodeGenerator();
@@ -113,39 +166,16 @@ public class T2faController {
                 boolean successful = verifier.isValidCode(lvUser.getAuthenticator_secret(), lvCode);
 
                 lvResp.put("s", String.valueOf(successful));
+
+                if (successful && !lv2faToken.isEmpty()) {
+                    final String lvSessionToken = this.mvLoginRequired2FACacheImpl.get(lv2faToken + "_" + lvName);
+                    lvResp.put("t", lvSessionToken);
+                }
             }
         } else {
-            lvResp.put("e", "User hasn't registered 2FA yet");
+            lvResp.put("e", "Invalid user");
         }
 
         return new ResponseEntity<>(lvResp, HttpStatus.OK);
     }
-
-    @PostMapping("/login")
-    public ResponseEntity<Map<String, String>> login(@RequestBody JsonNode payload) throws QrGenerationException {
-        Map<String, String> lvResp = new HashMap<>();
-        String lvName = payload.get("username").asText();
-        String lvPasswd = payload.get("password").asText();
-        LOGGER.info("Login by password " + lvName);
-
-        UserEntity lvUser = null;
-        List<UserEntity> lvListUser = mvUserRepository.findByUsername(lvName);
-        if (lvListUser.size() > 0) {
-            lvUser = lvListUser.get(0);
-        }
-        if (lvUser != null) {
-            if (lvPasswd.equals(lvUser.getPassword())) {
-                lvResp.put("s", String.valueOf(true));
-                lvResp.put("t", "token-123");
-            } else {
-                lvResp.put("s", String.valueOf(false));
-                lvResp.put("e", "Wrong username or password");
-            }
-        } else {
-            lvResp.put("e", "Wrong username or password");
-        }
-
-        return new ResponseEntity<>(lvResp, HttpStatus.OK);
-    }
-
 }
