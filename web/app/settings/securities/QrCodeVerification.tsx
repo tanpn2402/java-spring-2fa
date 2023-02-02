@@ -8,7 +8,27 @@ const QrCodeVerification = () => {
   const inputCodeRef = useRef<HTMLInputElement>(null);
 
   const onVerify = useCallback(() => {
-    console.log(inputCodeRef.current?.value);
+    fetch("/api/2fa/register", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        username: getCookie("username"),
+        code: inputCodeRef.current?.value
+      })
+    }).then(e => e.json())
+      .then((json: { success: boolean, error?: string }) => {
+        if (json.success) {
+          alert("Successfully!");
+        }
+        else {
+          alert("Error: " + json.error);
+        }
+      })
+      .catch((err: Error) => {
+          alert("Error: " + err.message);
+      })
   }, [inputCodeRef]);
 
   const onGetQrCode = useCallback(() => {
@@ -22,8 +42,10 @@ const QrCodeVerification = () => {
         username: getCookie("username")
       })
     }).then(e => e.json())
-      .then(json => {
-        setQrCodeSrc("1");
+      .then((json: { src?: string }) => {
+        if (json.src) {
+          setQrCodeSrc(json.src);
+        }
       })
       .catch((err: Error) => {
         console.log(err.message);
@@ -77,7 +99,7 @@ const QrCodeVerification = () => {
               </p>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <img src="http://t3.gstatic.com/licensed-image?q=tbn:ANd9GcSh-wrQu254qFaRcoYktJ5QmUhmuUedlbeMaQeaozAVD4lh4ICsGdBNubZ8UlMvWjKC" />
+                  <img src={qrCodeSrc as string} />
                 </div>
                 <div className="text-sm font-normal text-gray-500 dark:text-gray-200">
                   <ol>

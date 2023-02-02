@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -32,7 +33,8 @@ import dev.samstevens.totp.time.TimeProvider;
 
 import static dev.samstevens.totp.util.Utils.getDataUriForImage;
 
-@RestController("/2fa")
+@RestController()
+@RequestMapping("/2fa")
 public class TwoFAController {
 
     private final static Logger LOGGER = Logger.getLogger(AuthController.class.getName());
@@ -147,7 +149,6 @@ public class TwoFAController {
         Map<String, String> lvResp = new HashMap<>();
         String lvName = payload.get("username").asText();
         String lvCode = payload.get("code").asText();
-        String lv2faToken = payload.get("2faToken").asText("");
         LOGGER.info("Verify 2FA " + lvName + " | " + lvCode);
 
         UserEntity lvUser = null;
@@ -156,8 +157,7 @@ public class TwoFAController {
             lvUser = lvListUser.get(0);
         }
         if (lvUser != null) {
-            if (lvUser.getAuthenticator_secret() == null || lvUser.getAuthenticator_secret().isBlank() ||
-                    lvUser.getAuthenticator_secret().isEmpty()) {
+            if (lvUser.getAuthenticator_secret() == null || lvUser.getAuthenticator_secret().isEmpty()) {
                 lvResp.put("e", "User hasn't registered 2FA yet");
             } else {
                 TimeProvider timeProvider = new SystemTimeProvider();
@@ -167,8 +167,8 @@ public class TwoFAController {
 
                 lvResp.put("s", String.valueOf(successful));
 
-                if (successful && !lv2faToken.isEmpty()) {
-                    final String lvSessionToken = this.mvLoginRequired2FACacheImpl.get(lv2faToken + "_" + lvName);
+                if (successful && payload.get("2faToken") != null) {
+                    final String lvSessionToken = this.mvLoginRequired2FACacheImpl.get(payload.get("2faToken").asText() + "_" + lvName);
                     lvResp.put("t", lvSessionToken);
                 }
             }

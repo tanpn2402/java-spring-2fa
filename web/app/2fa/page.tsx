@@ -10,7 +10,7 @@ export default function TwoFAPage() {
             Enter Verification Code. Verification code can be found in your authentication app: <strong>Authy</strong>, <strong>Google Authenticator</strong>
           </p>
         </div>
-        <form className="mt-8 space-y-6" action="/api/auth/2fa-verification" method="post">
+        <form className="mt-8 space-y-6" action="/api/2fa/verify" method="post">
           <div className="grid grid-cols-2 gap-4">
             <div className="form-group mb-6">
               <input

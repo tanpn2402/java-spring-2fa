@@ -19,11 +19,11 @@ class AppConfigure {
 
     @Bean
     public SimpleExpirableCache<String, String> loginRequired2FACacheImpl() {
-        return new SimpleExpirableCache<>(60 * 5);
+        return new SimpleExpirableCache<>(60 * 5 * 1000);
     }
 
     @Bean
     public SimpleExpirableCache<String, String> secret2FACacheImpl() {
-        return new SimpleExpirableCache<>(60 * 5);
+        return new SimpleExpirableCache<>(60 * 5 * 1000);
     }
 }
